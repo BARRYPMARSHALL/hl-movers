@@ -86,7 +86,7 @@
 
 <div class="bar">
   <input type="search" id="q" placeholder="Filter coin…" autocomplete="off" spellcheck="false">
-  <label class="toggle" id="liqToggle"><input type="checkbox" id="liq"> Tradeable only <span class="thin">≥$5M vol &amp; OI</span></label>
+  <label class="toggle on" id="liqToggle"><input type="checkbox" id="liq" checked> Tradeable only <span class="thin">≥$5M vol &amp; OI</span></label>
   <label class="toggle" id="autoToggle"><input type="checkbox" id="auto" checked> Auto-refresh <span class="thin">60s</span></label>
 </div>
 
@@ -115,7 +115,8 @@
 <footer>
   <b>Tap any coin name</b> to open that market on Hyperliquid. <b>Source:</b> Hyperliquid's public info API — no server, no login, nothing stored.
   <br><b>Price, 24h, volume, open interest and funding are live</b> — this page fetches them itself and refreshes every 60 seconds.
-  <b>1h and 4h come from a snapshot</b> rebuilt every 15 minutes: they need one candle request per market, and doing that in every visitor's browser rate-limits the whole thing for everyone.
+  <b>1h and 4h come from a snapshot</b> built every 15 minutes over the tradeable markets (≥$5M daily volume and open interest): they need one candle request per market, and doing that in every visitor's browser rate-limits the exchange for everyone.
+  Untick the filter to see all 178 markets — the thin ones then show "—" for 1h and 4h.
   <b>24h</b> is the venue's own mark-vs-prev-day reference, so it matches what the exchange shows.
   <b>Funding</b> is the 8-hour rate annualised (×24×365); a single print is not carry — check the trend before acting on an outlier.
   <br><b>Illiquid markets are included</b> because the table is meant to be complete: the median market turns over about $573k a day,
@@ -167,11 +168,18 @@
     throw last;
   }
 
-  function render() {
+  /* The rows currently on screen. Both the table and the breadth stats use this, so the stats
+   * describe what you are looking at rather than the universe behind it — with the tradeable filter
+   * on, "37 of 37 up" is a fact about this screen, where "37 of 178" reads like missing data. */
+  function currentView() {
     const q = $("#q").value.trim().toLowerCase();
-    const liqOnly = $("#liq").checked;
-    let view = markets.filter(m => !q || m.coin.toLowerCase().includes(q));
-    if (liqOnly) view = view.filter(m => m.vol >= 5e6 && m.oiUsd >= 5e6);
+    let v = markets.filter(m => !q || m.coin.toLowerCase().includes(q));
+    if ($("#liq").checked) v = v.filter(m => m.vol >= 5e6 && m.oiUsd >= 5e6);
+    return v;
+  }
+
+  function render() {
+    const view = currentView();
 
     view.sort((a, b) => {
       const A = a[sortKey], B = b[sortKey];
@@ -205,7 +213,8 @@
     /* Every value interpolated below is a NUMBER derived here (pct(), Math.round, array lengths)
        or a static label — no string from the API reaches this markup — so innerHTML is safe in
        this one function. Coin names, which do come from the API, are escaped with esc(). */
-    const total = markets.length || 0;
+    const view = currentView();
+    const total = view.length || 0;
     const defs = [
       ["chg1h", "LAST 1 HOUR"], ["chg4h", "LAST 4 HOURS"], ["chg24h", "LAST 24 HOURS"],
     ];
@@ -213,7 +222,7 @@
       if (!total) {
         return `<div class="stat"><div class="stat-k">${label}</div><div class="stat-v na">—</div><div class="stat-s">loading markets…</div></div>`;
       }
-      const v = markets.map(m => m[k]).filter(x => x !== null && x !== undefined && isFinite(x));
+      const v = view.map(m => m[k]).filter(x => x !== null && x !== undefined && isFinite(x));
       /* Coverage gate, not "at least one value". The 1h/4h columns fill in one market at a time,
          so the first few seconds produced "0 of 1 up (0%)" — a breadth figure computed over one
          market, presented exactly like a market statistic. It is not one, and it makes a working
