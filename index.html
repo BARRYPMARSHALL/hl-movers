@@ -52,8 +52,18 @@
   tbody td:first-child{text-align:left}
   tbody tr:hover td{background:#161d27}
   .coin{font-weight:600}
-  .coin a{color:inherit;text-decoration:none}
-  .coin a:hover{color:var(--amber)}
+  /* The coin name IS the link to that market on Hyperliquid. It shipped with text-decoration:none
+   * and only a hover colour, so on a phone — where nothing ever hovers — it was indistinguishable
+   * from plain text and the link may as well not have existed. It now carries a permanent dotted
+   * underline, an external glyph and a real tap height. */
+  .coin a{
+    color:var(--text);text-decoration:underline;text-decoration-style:dotted;
+    text-decoration-color:#3b4552;text-underline-offset:3px;
+    display:inline-block;padding:3px 0
+  }
+  .coin a:hover,.coin a:focus-visible{color:var(--amber);text-decoration-color:var(--amber)}
+  .coin a::after{content:"\2197";font-size:9.5px;margin-left:5px;color:var(--dim);vertical-align:super;opacity:.85}
+  .coin a:hover::after{color:var(--amber)}
   .num{color:var(--muted);font-size:12px}
   .up{color:var(--up)} .down{color:var(--down)} .flat,.na{color:var(--dim)}
   .c24{font-weight:700}
@@ -105,7 +115,7 @@
 
 <footer>
   <b>Source:</b> Hyperliquid public info API, called directly by this page — no server, no login, nothing stored.
-  Prices are mark price. <b>24h</b> is the venue's own mark-vs-prev-day reference, so it matches what the exchange shows;
+  <b>Tap any coin name</b> to open that market on Hyperliquid. Prices are mark price. <b>24h</b> is the venue's own mark-vs-prev-day reference, so it matches what the exchange shows;
   <b>1h</b> and <b>4h</b> are computed here from 5-minute candles and fill in progressively.
   <b>Funding</b> is the 8-hour rate annualised (×24×365); a single print is not carry — check the trend before acting on an outlier.
   <br><b>Illiquid markets are included</b> because the table is meant to be complete: the median market turns over about $573k a day,
@@ -178,7 +188,7 @@
 
     rowsEl.innerHTML = view.length ? view.map(m => `
       <tr>
-        <td class="coin"><a href="https://app.hyperliquid.xyz/trade/${encodeURIComponent(m.coin)}" target="_blank" rel="noopener">${esc(m.coin)}</a></td>
+        <td class="coin"><a href="https://app.hyperliquid.xyz/trade/${encodeURIComponent(m.coin)}" target="_blank" rel="noopener" title="Open ${esc(m.coin)} on Hyperliquid" aria-label="Open ${esc(m.coin)} on Hyperliquid">${esc(m.coin)}</a></td>
         <td class="${cls(m.chg1h)}">${pct(m.chg1h)}</td>
         <td class="${cls(m.chg4h)}">${pct(m.chg4h)}</td>
         <td class="${cls(m.chg24h)} c24">${pct(m.chg24h)}</td>
