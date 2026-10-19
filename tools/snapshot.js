@@ -21,11 +21,12 @@ const path = require('node:path');
 
 const API = 'https://api.hyperliquid.xyz/info';
 const OUT = process.argv[2] || path.join(__dirname, '..', 'data.json');
-/* Tradeable-only by default. The full universe is 178 markets and 141 of them turn over under
- * $5M a day — measuring 1h/4h on a market nobody can fill an order in is 141 requests spent on
- * noise, and it is what made this sweep slow enough to brush the venue's rate limit. `--all`
- * restores the full universe for anyone who wants it. */
-const ALL = process.argv.includes('--all') || process.env.ALL_MARKETS === '1';
+/* The sweep covers the FULL universe by default, because the data should be complete even though
+ * the page opens filtered to the tradeable set. It runs on GitHub's IP, not Barry's, so its size
+ * no longer competes with his own Hyperliquid chart requests — which was the actual problem.
+ * `--tradeable` cuts it to markets with >= $5M daily volume and open interest: 37 requests
+ * instead of 178, at the cost of blank 1h/4h for the thin ones. */
+const TRADEABLE_ONLY = process.argv.includes('--tradeable') || process.env.TRADEABLE_ONLY === '1';
 const MIN_VOL = 5e6, MIN_OI = 5e6;
 const HOUR = 3600e3;
 const GAP_MS = 300;          // ~3.3 req/s ceiling; measured-safe is 2/s, so this relies on backoff
@@ -68,12 +69,12 @@ const closeAt = (cands, target) => {
     const markPx = Number(c.markPx || 0);
     const vol = Number(c.dayNtlVlm || 0);
     const oiUsd = Number(c.openInterest || 0) * markPx;
-    if (!ALL && !(vol >= MIN_VOL && oiUsd >= MIN_OI)) continue;   // tradeable only
+    if (TRADEABLE_ONLY && !(vol >= MIN_VOL && oiUsd >= MIN_OI)) continue;
     coins.push({ coin: u.name, vol, markPx });
   }
   // most liquid first, so if the sweep is cut short the rows that matter are already priced
   coins.sort((a, b) => b.vol - a.vol);
-  console.log(`  ${coins.length} ${ALL ? 'markets (ALL)' : 'tradeable markets'} to price`);
+  console.log(`  ${coins.length} ${TRADEABLE_ONLY ? 'tradeable markets (--tradeable)' : 'markets'} to price`);
 
   const now = Date.now();
   const startTime = now - (4 * HOUR + 15 * 60e3);

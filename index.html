@@ -115,8 +115,8 @@
 <footer>
   <b>Tap any coin name</b> to open that market on Hyperliquid. <b>Source:</b> Hyperliquid's public info API — no server, no login, nothing stored.
   <br><b>Price, 24h, volume, open interest and funding are live</b> — this page fetches them itself and refreshes every 60 seconds.
-  <b>1h and 4h come from a snapshot</b> built every 15 minutes over the tradeable markets (≥$5M daily volume and open interest): they need one candle request per market, and doing that in every visitor's browser rate-limits the exchange for everyone.
-  Untick the filter to see all 178 markets — the thin ones then show "—" for 1h and 4h.
+  <b>1h and 4h come from a snapshot</b> built every 15 minutes, on a server rather than in your browser — one candle request per market is enough to rate-limit the exchange, and doing it per visitor throttled everyone's charts.
+  The table opens filtered to the tradeable markets; untick the filter for all 178.
   <b>24h</b> is the venue's own mark-vs-prev-day reference, so it matches what the exchange shows.
   <b>Funding</b> is the 8-hour rate annualised (×24×365); a single print is not carry — check the trend before acting on an outlier.
   <br><b>Illiquid markets are included</b> because the table is meant to be complete: the median market turns over about $573k a day,
