@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hyperliquid — every tradeable perp</title>
+<meta name="description" content="Every tradeable Hyperliquid perp with 1h, 4h and 24h change, liquidity and funding. Live, no login.">
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#121821; --line:#1f2630; --line2:#161c25;
+    --text:#e6edf3; --muted:#8b949e; --dim:#6e7681;
+    --up:#3fb950; --down:#f85149; --amber:#f5a524;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text)}
+  body{font:14px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif;padding:18px 16px 40px;max-width:1240px;margin:0 auto}
+  h1{margin:0 0 2px;font-size:20px;letter-spacing:.2px}
+  .sub{color:var(--muted);font-size:12.5px;margin-bottom:14px}
+  .sub b{color:var(--amber);font-weight:600}
+  .bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  input[type=search]{
+    flex:1 1 220px;min-width:180px;background:var(--panel);border:1px solid var(--line);
+    color:var(--text);border-radius:8px;padding:9px 12px;font:inherit;font-size:13px;outline:none
+  }
+  input[type=search]:focus{border-color:#2d3743}
+  .toggle{
+    display:inline-flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--line);
+    border-radius:8px;padding:8px 12px;cursor:pointer;font-size:12.5px;color:var(--muted);user-select:none
+  }
+  .toggle input{accent-color:var(--amber);margin:0}
+  .toggle.on{color:var(--text);border-color:#2d3743}
+  .stats{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+  .stat{flex:1 1 190px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 13px}
+  .stat-k{font-size:10px;letter-spacing:.9px;color:var(--dim);margin-bottom:4px}
+  .stat-v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+  .stat-s{font-size:11px;color:var(--muted);margin-top:1px}
+  .prog{height:3px;background:var(--line2);border-radius:2px;overflow:hidden;margin-bottom:10px}
+  .prog i{display:block;height:100%;width:0;background:var(--amber);transition:width .25s ease}
+  .prog.done i{background:var(--up)}
+  .wrap{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:auto;-webkit-overflow-scrolling:touch}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;min-width:720px}
+  thead th{
+    position:sticky;top:0;background:#151c26;z-index:2;
+    font-size:10.5px;letter-spacing:.7px;color:var(--dim);font-weight:600;
+    text-align:right;padding:10px 10px 9px;border-bottom:1px solid var(--line);
+    cursor:pointer;white-space:nowrap;user-select:none
+  }
+  thead th:first-child{text-align:left}
+  thead th:hover{color:var(--text)}
+  thead th .ar{opacity:.45;font-size:9px;margin-left:3px}
+  tbody td{padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid var(--line2);white-space:nowrap}
+  tbody td:first-child{text-align:left}
+  tbody tr:hover td{background:#161d27}
+  .coin{font-weight:600}
+  .coin a{color:inherit;text-decoration:none}
+  .coin a:hover{color:var(--amber)}
+  .num{color:var(--muted);font-size:12px}
+  .up{color:var(--up)} .down{color:var(--down)} .flat,.na{color:var(--dim)}
+  .c24{font-weight:700}
+  .thin{color:var(--dim);font-size:11px;margin-left:4px}
+  footer{color:var(--dim);font-size:11.5px;margin-top:14px;line-height:1.7}
+  footer b{color:var(--muted)}
+  .err{color:var(--down);font-size:12.5px;margin:8px 0}
+  @media (max-width:640px){
+    body{padding:14px 10px 30px}
+    h1{font-size:17px}
+    .stat-v{font-size:17px}
+    thead th,tbody td{padding-left:7px;padding-right:7px}
+  }
+</style>
+</head>
+<body>
+
+<h1>Hyperliquid — every tradeable perp</h1>
+<div class="sub" id="sub">loading…</div>
+
+<div class="bar">
+  <input type="search" id="q" placeholder="Filter coin…" autocomplete="off" spellcheck="false">
+  <label class="toggle" id="liqToggle"><input type="checkbox" id="liq"> Tradeable only <span class="thin">≥$5M vol &amp; OI</span></label>
+  <label class="toggle" id="autoToggle"><input type="checkbox" id="auto" checked> Auto-refresh <span class="thin">60s</span></label>
+</div>
+
+<div class="stats" id="stats"></div>
+<div class="prog" id="prog"><i></i></div>
+<div id="err"></div>
+
+<div class="wrap">
+  <table>
+    <thead>
+      <tr>
+        <th data-k="coin">Coin <span class="ar" id="ar-coin"></span></th>
+        <th data-k="chg1h">1h <span class="ar" id="ar-chg1h"></span></th>
+        <th data-k="chg4h">4h <span class="ar" id="ar-chg4h"></span></th>
+        <th data-k="chg24h">24h <span class="ar" id="ar-chg24h"></span></th>
+        <th data-k="px">Price <span class="ar" id="ar-px"></span></th>
+        <th data-k="vol">Volume 24h <span class="ar" id="ar-vol"></span></th>
+        <th data-k="oi">Open interest <span class="ar" id="ar-oi"></span></th>
+        <th data-k="fund">Funding APR <span class="ar" id="ar-fund"></span></th>
+        <th data-k="lev">Max lev <span class="ar" id="ar-lev"></span></th>
+      </tr>
+    </thead>
+    <tbody id="rows"><tr><td colspan="9" class="na" style="text-align:center;padding:26px">loading markets…</td></tr></tbody>
+  </table>
+</div>
+
+<footer>
+  <b>Source:</b> Hyperliquid public info API, called directly by this page — no server, no login, nothing stored.
+  Prices are mark price. <b>24h</b> is the venue's own mark-vs-prev-day reference, so it matches what the exchange shows;
+  <b>1h</b> and <b>4h</b> are computed here from 5-minute candles and fill in progressively.
+  <b>Funding</b> is the 8-hour rate annualised (×24×365); a single print is not carry — check the trend before acting on an outlier.
+  <br><b>Illiquid markets are included</b> because the table is meant to be complete: the median market turns over about $573k a day,
+  so a large percentage on a thin name is a headline rather than a trade. Use the tradeable filter.
+</footer>
+
+<script>
+(() => {
+  "use strict";
+  const API = "https://api.hyperliquid.xyz/info";
+  const HOUR = 3600e3, CONC = 5;
+
+  const $ = s => document.querySelector(s);
+  const rowsEl = $("#rows"), statsEl = $("#stats"), subEl = $("#sub"), errEl = $("#err"), progEl = $("#prog");
+  let markets = [];
+  let sortKey = "chg24h", sortDir = -1, lastAt = null, busy = false;
+
+  const pct = n => (n === null || n === undefined || !isFinite(n)) ? "—" : (n > 0 ? "+" : "") + n.toFixed(2) + "%";
+  const cls = n => (n === null || n === undefined || !isFinite(n)) ? "na" : n > 0.005 ? "up" : n < -0.005 ? "down" : "flat";
+  const usd = n => !isFinite(n) || n === 0 ? "—" : n >= 1e9 ? "$" + (n / 1e9).toFixed(2) + "B"
+                      : n >= 1e6 ? "$" + (n / 1e6).toFixed(1) + "M"
+                      : n >= 1e3 ? "$" + Math.round(n / 1e3) + "k" : "$" + Math.round(n);
+  const px = n => !isFinite(n) || n === 0 ? "—" : n >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 1 })
+                      : n >= 1 ? n.toFixed(3) : n.toPrecision(4);
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  /* Coin names and every other string here arrive from a THIRD-PARTY API and are interpolated into
+   * innerHTML, so they are escaped rather than trusted. A ticker is not a place an attacker is
+   * likely to be, but "unlikely" is why this class of bug survives review; the numeric columns are
+   * built from toFixed()/toLocaleString() and cannot carry markup. */
+  const esc = s => String(s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  async function post(body, tries = 4) {
+    let last;
+    for (let a = 1; a <= tries; a++) {
+      try {
+        const res = await fetch(API, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body), signal: AbortSignal.timeout(25000),
+        });
+        if (res.status === 429 || res.status >= 500) throw new Error("HTTP " + res.status);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return await res.json();
+      } catch (e) { last = e; if (a < tries) await sleep(400 * Math.pow(2, a - 1)); }
+    }
+    throw last;
+  }
+
+  const closeAt = (cands, target) => {
+    let hit = null;
+    for (const c of cands) { if (c.t <= target) hit = c; else break; }
+    return hit ? Number(hit.c) : null;
+  };
+
+  function render() {
+    const q = $("#q").value.trim().toLowerCase();
+    const liqOnly = $("#liq").checked;
+    let view = markets.filter(m => !q || m.coin.toLowerCase().includes(q));
+    if (liqOnly) view = view.filter(m => m.vol >= 5e6 && m.oiUsd >= 5e6);
+
+    view.sort((a, b) => {
+      const A = a[sortKey], B = b[sortKey];
+      if (typeof A === "string") return sortDir * A.localeCompare(B);
+      const av = (A === null || A === undefined || !isFinite(A)) ? -Infinity : A;
+      const bv = (B === null || B === undefined || !isFinite(B)) ? -Infinity : B;
+      return sortDir * (av - bv);
+    });
+
+    rowsEl.innerHTML = view.length ? view.map(m => `
+      <tr>
+        <td class="coin"><a href="https://app.hyperliquid.xyz/trade/${encodeURIComponent(m.coin)}" target="_blank" rel="noopener">${esc(m.coin)}</a></td>
+        <td class="${cls(m.chg1h)}">${pct(m.chg1h)}</td>
+        <td class="${cls(m.chg4h)}">${pct(m.chg4h)}</td>
+        <td class="${cls(m.chg24h)} c24">${pct(m.chg24h)}</td>
+        <td class="num">${px(m.px)}</td>
+        <td class="num">${usd(m.vol)}</td>
+        <td class="num">${usd(m.oiUsd)}</td>
+        <td class="num">${isFinite(m.fund) ? (m.fund > 0 ? "+" : "") + m.fund.toFixed(0) + "%" : "—"}</td>
+        <td class="num">${m.lev || "—"}</td>
+      </tr>`).join("")
+      : `<tr><td colspan="9" class="na" style="text-align:center;padding:26px">no markets match</td></tr>`;
+
+    for (const k of ["coin", "chg1h", "chg4h", "chg24h", "px", "vol", "oi", "fund", "lev"]) {
+      const el = document.getElementById("ar-" + k);
+      if (el) el.textContent = k === sortKey ? (sortDir === 1 ? "▲" : "▼") : "";
+    }
+  }
+
+  function renderStats() {
+    const defs = [
+      ["chg1h", "LAST 1 HOUR"], ["chg4h", "LAST 4 HOURS"], ["chg24h", "LAST 24 HOURS"],
+    ];
+    statsEl.innerHTML = defs.map(([k, label]) => {
+      const v = markets.map(m => m[k]).filter(x => x !== null && x !== undefined && isFinite(x));
+      if (!v.length) return `<div class="stat"><div class="stat-k">${label}</div><div class="stat-v na">—</div><div class="stat-s">loading…</div></div>`;
+      const up = v.filter(x => x > 0).length;
+      const med = v.slice().sort((a, b) => a - b)[Math.floor(v.length / 2)];
+      return `<div class="stat">
+        <div class="stat-k">${label}</div>
+        <div class="stat-v ${med >= 0 ? "up" : "down"}">${pct(med)}</div>
+        <div class="stat-s">${up} of ${v.length} up (${Math.round(up / v.length * 100)}%) · median</div>
+      </div>`;
+    }).join("");
+  }
+
+  function stamp() {
+    if (!lastAt) return;
+    const t = lastAt.toISOString().replace("T", " ").slice(0, 19);
+    const liq = markets.filter(m => m.vol >= 5e6 && m.oiUsd >= 5e6).length;
+    subEl.innerHTML = `<b>${markets.length} live markets</b> on the main perp dex · ${liq} tradeable (≥$5M vol &amp; OI) · updated ${t} UTC`;
+  }
+
+  async function loadContexts() {
+    const [meta, ctxs] = await post({ type: "metaAndAssetCtxs" });
+    const uni = meta.universe || [];
+    const prev = new Map(markets.map(m => [m.coin, m]));
+    const next = [];
+    for (let i = 0; i < uni.length; i++) {
+      const u = uni[i];
+      if (u.isDelisted) continue;
+      if (String(u.dex ?? "main") !== "main") continue;   // primary perp dex only
+      const c = ctxs[i] || {};
+      const old = prev.get(u.name);
+      const markPx = Number(c.markPx || 0);
+      const prevDayPx = Number(c.prevDayPx || 0);
+      next.push({
+        coin: u.name, lev: Number(u.maxLeverage || 0),
+        px: markPx, vol: Number(c.dayNtlVlm || 0),
+        oiUsd: Number(c.openInterest || 0) * markPx,
+        fund: Number(c.funding || 0) * 24 * 365 * 100,
+        chg24h: prevDayPx > 0 ? (markPx / prevDayPx - 1) * 100 : null,
+        chg1h: old && old.chg1h !== undefined ? old.chg1h : null,
+        chg4h: old && old.chg4h !== undefined ? old.chg4h : null,
+      });
+    }
+    markets = next;
+    lastAt = new Date();
+  }
+
+  async function fillIntraday(targets) {
+    const now = Date.now();
+    const startTime = now - (4 * HOUR + 15 * 60e3);
+    let done = 0, failed = 0;
+    const queue = [...targets];
+    const total = targets.length;
+
+    const setProg = () => {
+      const pctv = total ? (done / total) * 100 : 0;
+      progEl.firstElementChild.style.width = pctv.toFixed(1) + "%";
+      progEl.classList.toggle("done", done === total);
+    };
+    setProg();
+
+    const worker = async () => {
+      while (queue.length) {
+        const m = queue.shift();
+        try {
+          const cands = await post({ type: "candleSnapshot",
+            req: { coin: m.coin, interval: "5m", startTime, endTime: Date.now() } });
+          if (Array.isArray(cands) && cands.length) {
+            const last = Number(cands[cands.length - 1].c);
+            const p1 = closeAt(cands, Date.now() - HOUR);
+            const p4 = closeAt(cands, Date.now() - 4 * HOUR);
+            m.chg1h = p1 ? (last / p1 - 1) * 100 : null;
+            m.chg4h = p4 ? (last / p4 - 1) * 100 : null;
+          }
+        } catch { failed++; }
+        done++;
+        if (done % 6 === 0 || done === total) { setProg(); render(); renderStats(); }
+      }
+    };
+    await Promise.all(Array.from({ length: CONC }, worker));
+    setProg();
+    return { failed, total };
+  }
+
+  async function refreshIntraday() {
+    if (busy) return;
+    busy = true;
+    errEl.textContent = "";
+    try {
+      await loadContexts();
+      render(); renderStats(); stamp();
+      const res = await fillIntraday(markets);
+      render(); renderStats(); stamp();
+      if (res.failed) errEl.textContent = `${res.failed} of ${res.total} markets could not be priced for 1h/4h (shown as —). Refresh to retry.`;
+    } catch (e) {
+      errEl.textContent = "Could not reach Hyperliquid: " + e.message;
+    } finally { busy = false; }
+  }
+
+  $("#q").addEventListener("input", render);
+  $("#liq").addEventListener("change", e => {
+    $("#liqToggle").classList.toggle("on", e.target.checked);
+    render();
+  });
+  document.querySelectorAll("thead th").forEach(th => {
+    th.addEventListener("click", () => {
+      const k = th.dataset.k;
+      if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = (k === "coin" || k === "lev") ? 1 : -1; }
+      render();
+    });
+  });
+
+  refreshIntraday();
+
+  setInterval(() => { if ($("#auto").checked && !busy) refreshIntraday(); }, 60000);
+})();
+</script>
+</body>
+</html>
