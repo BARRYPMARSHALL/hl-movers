@@ -91,8 +91,7 @@
 </div>
 
 <div class="stats" id="stats"></div>
-<div class="prog" id="prog"><i></i></div>
-<div id="err"></div>
+<div id="err" class="err"></div>
 
 <div class="wrap">
   <table>
@@ -114,9 +113,10 @@
 </div>
 
 <footer>
-  <b>Source:</b> Hyperliquid public info API, called directly by this page — no server, no login, nothing stored.
-  <b>Tap any coin name</b> to open that market on Hyperliquid. Prices are mark price. <b>24h</b> is the venue's own mark-vs-prev-day reference, so it matches what the exchange shows;
-  <b>1h</b> and <b>4h</b> are computed here from 5-minute candles and fill in progressively.
+  <b>Tap any coin name</b> to open that market on Hyperliquid. <b>Source:</b> Hyperliquid's public info API — no server, no login, nothing stored.
+  <br><b>Price, 24h, volume, open interest and funding are live</b> — this page fetches them itself and refreshes every 60 seconds.
+  <b>1h and 4h come from a snapshot</b> rebuilt every 15 minutes: they need one candle request per market, and doing that in every visitor's browser rate-limits the whole thing for everyone.
+  <b>24h</b> is the venue's own mark-vs-prev-day reference, so it matches what the exchange shows.
   <b>Funding</b> is the 8-hour rate annualised (×24×365); a single print is not carry — check the trend before acting on an outlier.
   <br><b>Illiquid markets are included</b> because the table is meant to be complete: the median market turns over about $573k a day,
   so a large percentage on a thin name is a headline rather than a trade. Use the tradeable filter.
@@ -126,11 +126,12 @@
 (() => {
   "use strict";
   const API = "https://api.hyperliquid.xyz/info";
-  const HOUR = 3600e3, CONC = 5;
+  const SNAPSHOT = "data.json";
 
   const $ = s => document.querySelector(s);
-  const rowsEl = $("#rows"), statsEl = $("#stats"), subEl = $("#sub"), errEl = $("#err"), progEl = $("#prog");
+  const rowsEl = $("#rows"), statsEl = $("#stats"), subEl = $("#sub"), errEl = $("#err");
   let markets = [];
+  let snapshotAt = null, snapshotPriced = 0;
   let sortKey = "chg24h", sortDir = -1, lastAt = null, busy = false;
 
   const pct = n => (n === null || n === undefined || !isFinite(n)) ? "—" : (n > 0 ? "+" : "") + n.toFixed(2) + "%";
@@ -165,12 +166,6 @@
     }
     throw last;
   }
-
-  const closeAt = (cands, target) => {
-    let hit = null;
-    for (const c of cands) { if (c.t <= target) hit = c; else break; }
-    return hit ? Number(hit.c) : null;
-  };
 
   function render() {
     const q = $("#q").value.trim().toLowerCase();
@@ -239,10 +234,16 @@
   }
 
   function stamp() {
-    if (!lastAt) return;
-    const t = lastAt.toISOString().replace("T", " ").slice(0, 19);
+    if (!lastAt) { subEl.textContent = "loading…"; return; }
     const liq = markets.filter(m => m.vol >= 5e6 && m.oiUsd >= 5e6).length;
-    subEl.innerHTML = `<b>${markets.length} live markets</b> on the main perp dex · ${liq} tradeable (≥$5M vol &amp; OI) · updated ${t} UTC`;
+    const quotes = lastAt.toISOString().slice(11, 16);
+    const snap = snapshotAt
+      ? `1h/4h ${new Date(snapshotAt).toISOString().slice(11, 16)} UTC` + (snapshotPriced && snapshotPriced < markets.length ? ` (${snapshotPriced}/${markets.length})` : "")
+      : "1h/4h unavailable";
+    /* Price and the snapshot are on DIFFERENT clocks and the header says so, because the alternative
+       is a reader assuming all nine columns are equally current. */
+    subEl.innerHTML = `<b>${markets.length} live markets</b> on the main perp dex · ${liq} tradeable (≥$5M vol &amp; OI)`
+      + ` · <span class="d">price ${quotes} UTC · ${snap}</span>`;
   }
 
   async function loadContexts() {
@@ -272,56 +273,61 @@
     lastAt = new Date();
   }
 
-  async function fillIntraday(targets) {
-    const now = Date.now();
-    const startTime = now - (4 * HOUR + 15 * 60e3);
-    let done = 0, failed = 0;
-    const queue = [...targets];
-    const total = targets.length;
-
-    const setProg = () => {
-      const pctv = total ? (done / total) * 100 : 0;
-      progEl.firstElementChild.style.width = pctv.toFixed(1) + "%";
-      progEl.classList.toggle("done", done === total);
-    };
-    setProg();
-
-    const worker = async () => {
-      while (queue.length) {
-        const m = queue.shift();
-        try {
-          const cands = await post({ type: "candleSnapshot",
-            req: { coin: m.coin, interval: "5m", startTime, endTime: Date.now() } });
-          if (Array.isArray(cands) && cands.length) {
-            const last = Number(cands[cands.length - 1].c);
-            const p1 = closeAt(cands, Date.now() - HOUR);
-            const p4 = closeAt(cands, Date.now() - 4 * HOUR);
-            m.chg1h = p1 ? (last / p1 - 1) * 100 : null;
-            m.chg4h = p4 ? (last / p4 - 1) * 100 : null;
-          }
-        } catch { failed++; }
-        done++;
-        if (done % 6 === 0 || done === total) { setProg(); render(); renderStats(); }
+  /* ── the intraday snapshot ────────────────────────────────────────────────────────────────────
+   * 1h/4h need one candle request PER MARKET — 178 of them. Measured against the public info API:
+   * ~2.5s per request, ~2 req/s sustainable and 2.5 req/s throttled. Doing that in every visitor's
+   * browser gave every visitor a 429 and the columns silently stopped filling.
+   *
+   * So a scheduled job (.github/workflows/refresh.yml -> tools/snapshot.js) pays that cost every
+   * 15 minutes and writes this small same-origin JSON. The page reads it and calls the info API
+   * live for price / 24h / volume / OI, which is ONE request.
+   *
+   * A missing or stale snapshot is tolerated: the columns show "—" rather than inventing a number. */
+  async function loadSnapshot() {
+    try {
+      const res = await fetch(SNAPSHOT + "?t=" + Date.now(), { cache: "no-store" });
+      if (!res.ok) return;
+      const j = await res.json();
+      if (!j || !j.markets) return;
+      snapshotAt = j.at || null;
+      let n = 0;
+      for (const m of markets) {
+        const s = j.markets[m.coin];
+        if (!s) continue;
+        m.chg1h = (s.chg1h === undefined ? null : s.chg1h);
+        m.chg4h = (s.chg4h === undefined ? null : s.chg4h);
+        if (m.chg1h !== null && m.chg4h !== null) n++;
       }
-    };
-    await Promise.all(Array.from({ length: CONC }, worker));
-    setProg();
-    return { failed, total };
+      snapshotPriced = n;
+    } catch { /* no snapshot is not an error: the live columns still work */ }
   }
 
-  async function refreshIntraday() {
+  /* First paint: ONE live contexts call for every market, plus the same-origin snapshot for 1h/4h. */
+  async function boot() {
     if (busy) return;
     busy = true;
     errEl.textContent = "";
     try {
       await loadContexts();
+      await loadSnapshot();
       render(); renderStats(); stamp();
-      const res = await fillIntraday(markets);
-      render(); renderStats(); stamp();
-      if (res.failed) errEl.textContent = `${res.failed} of ${res.total} markets could not be priced for 1h/4h (shown as —). Refresh to retry.`;
+      if (!snapshotAt) {
+        errEl.textContent = "The 1h/4h snapshot could not be loaded (it is rebuilt every 15 minutes). Everything else on this page is live.";
+      }
     } catch (e) {
       errEl.textContent = "Could not reach Hyperliquid: " + e.message;
     } finally { busy = false; }
+  }
+
+  /* The timer refreshes price / 24h / volume / OI — ONE request. It never re-prices candles. */
+  async function refreshQuotes() {
+    if (busy) return;
+    try {
+      await loadContexts();
+      render(); renderStats(); stamp();
+    } catch (e) {
+      errEl.textContent = "Quote refresh failed: " + e.message;
+    }
   }
 
   $("#q").addEventListener("input", render);
@@ -337,9 +343,15 @@
     });
   });
 
-  refreshIntraday();
+  /* Price/24h refresh on a timer; the 1h/4h columns come from the snapshot (see loadSnapshot). */
+  $("#auto").addEventListener("change", e => {
+    $("#autoToggle").classList.toggle("on", e.target.checked);
+  });
+  $("#autoToggle").classList.toggle("on", $("#auto").checked);
 
-  setInterval(() => { if ($("#auto").checked && !busy) refreshIntraday(); }, 60000);
+  setInterval(() => { if ($("#auto").checked && !busy) refreshQuotes(); }, 60000);
+
+  boot();
 })();
 </script>
 </body>
