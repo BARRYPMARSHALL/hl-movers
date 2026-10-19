@@ -207,18 +207,33 @@
   }
 
   function renderStats() {
+    /* Every value interpolated below is a NUMBER derived here (pct(), Math.round, array lengths)
+       or a static label — no string from the API reaches this markup — so innerHTML is safe in
+       this one function. Coin names, which do come from the API, are escaped with esc(). */
+    const total = markets.length || 0;
     const defs = [
       ["chg1h", "LAST 1 HOUR"], ["chg4h", "LAST 4 HOURS"], ["chg24h", "LAST 24 HOURS"],
     ];
     statsEl.innerHTML = defs.map(([k, label]) => {
+      if (!total) {
+        return `<div class="stat"><div class="stat-k">${label}</div><div class="stat-v na">—</div><div class="stat-s">loading markets…</div></div>`;
+      }
       const v = markets.map(m => m[k]).filter(x => x !== null && x !== undefined && isFinite(x));
-      if (!v.length) return `<div class="stat"><div class="stat-k">${label}</div><div class="stat-v na">—</div><div class="stat-s">loading…</div></div>`;
+      /* Coverage gate, not "at least one value". The 1h/4h columns fill in one market at a time,
+         so the first few seconds produced "0 of 1 up (0%)" — a breadth figure computed over one
+         market, presented exactly like a market statistic. It is not one, and it makes a working
+         page look broken on first load. Below 80% coverage the honest answer is "still pricing". */
+      if (v.length / total < 0.8) {
+        return `<div class="stat"><div class="stat-k">${label}</div><div class="stat-v na">—</div>
+          <div class="stat-s">pricing ${v.length} of ${total}…</div></div>`;
+      }
       const up = v.filter(x => x > 0).length;
       const med = v.slice().sort((a, b) => a - b)[Math.floor(v.length / 2)];
+      const unpriced = total - v.length;
       return `<div class="stat">
         <div class="stat-k">${label}</div>
         <div class="stat-v ${med >= 0 ? "up" : "down"}">${pct(med)}</div>
-        <div class="stat-s">${up} of ${v.length} up (${Math.round(up / v.length * 100)}%) · median</div>
+        <div class="stat-s">${up} of ${v.length} up (${Math.round(up / v.length * 100)}%) · median${unpriced ? ` · ${unpriced} unpriced` : ""}</div>
       </div>`;
     }).join("");
   }
